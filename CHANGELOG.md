@@ -5,6 +5,46 @@ All notable changes to the Imaging Data Commons Skill are documented in this fil
 The format is based on [Keep a Changelog](https://keepachangelog.com/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [1.9.0] - 2026-10-08
+
+IDC v25, `idc-index` 0.13.0 (`idc-index-data` 25.0.0), REST/MCP API `3.0.0b5`. The package bump
+carries no API change; the substance of the release is **data provenance**.
+
+### Added
+
+- **Provenance** (`index_tables_guide.md`, `sql_patterns.md`, `SKILL.md`): who contributed,
+  de-identified, and DICOM-converted each part of the archive. Recorded **per source, keyed on
+  `source_DOI`** — `collections_index.sources` is a list of structs (unnest it) with a nested
+  `provenance`; `analysis_results_index.provenance` is a new column. A `NULL` struct means that
+  source is an analysis result, so look it up in the other table — across the pair, coverage is
+  complete. `NOT_APPLICABLE` / `UNKNOWN` / `NOT_DOCUMENTED` are values, not nulls
+- Four `index` columns the guides never carried: `sop_class_name`, `transfer_syntax_name`,
+  `PhotometricInterpretation`, `PixelRepresentation`. All four are comma-separated when instances
+  in a series disagree (~72 000 series) and the latter two are `NULL` for SEG/SR/RTSTRUCT, so `=`
+  silently drops mixed-encoding series. `sop_class_name`, not `SOPClassUID`, is filterable
+- Hugging Face mirror of the Parquet artifacts
+  ([`ImagingDataCommons/idc-index-data`](https://huggingface.co/datasets/ImagingDataCommons/idc-index-data),
+  public, no token). A fallback only — revision tags are incomplete, so pin via GCS
+- Four missing Parquet artifacts: `sm_instance_index`, `version_metadata_index`,
+  `gdc_idc_mapping` (the imaging/genomics join), `tcia_idc_subset`
+- `TestProvenance`, covering the unnest path, the NULL-is-a-pointer rule, and `tcga_brca`
+
+### Changed
+
+- Pinned minimum `idc-index` **0.12.5 → 0.13.0**; documented data version **v24 → v25**. Older
+  installs report `v24` and cannot download series added in v25
+- Archive totals **176 → 179 collections**, ~99 → **~100 TB**; mixed-license collections still 39
+- API claims **`3.0.0b3` → `3.0.0b5`**; tool inventory, the 19 filterable attributes, and all REST
+  limits re-verified unchanged
+- BigQuery example `idc_v24` → `idc_v25`. The DICOMweb store stays `idc-store-v24` — stores lag a
+  release by 1-2 weeks and `idc-store-v25` is not populated yet, which `dicomweb_guide.md` now
+  warns about at the point of use
+
+### Fixed
+
+- `test_snippets.py` hardcoded `"v24"`, needing a hand edit every data release. It now reads
+  `idc-data-version` from the frontmatter, so a stale pin fails CI instead of stale guides
+
 ## [1.8.3] - 2026-09-03
 
 A stale index returns zero rows rather than an error, and `scripts/check_version.py` was

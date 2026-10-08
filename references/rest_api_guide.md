@@ -1,6 +1,6 @@
 # IDC REST API Guide
 
-**Tested with:** API `3.0.0b3` (build `0640860`), IDC data version v24, `idc_index_data_version` 24.2.2
+**Tested with:** API `3.0.0b5` (build `a7abd9e`), IDC data version v25, `idc_index_data_version` 25.0.0
 
 IDC operates a hosted REST API that exposes discovery, cohort building, metadata SQL, and
 download manifests over plain HTTP. No authentication, account, or credentials are required —
@@ -57,7 +57,7 @@ running build rather than assuming the values in this guide:
 
 ```bash
 curl -s https://api.imaging.datacommons.cancer.gov/v3/version
-# {"idc_version":"v24","idc_index_data_version":"24.2.2","api_version":"3.0.0b3","build":"0640860"}
+# {"idc_version":"v25","idc_index_data_version":"25.0.0","api_version":"3.0.0b5","build":"a7abd9e"}
 ```
 
 `idc_version` is the IDC data release the API serves and is the authority when the API is in
@@ -101,7 +101,7 @@ So read a mismatch by its position:
 | Minor or patch (24.2.0 vs 24.2.2) | Same data release, different index build | Same series everywhere; downloads are unaffected. A metadata query can still differ if it touches a column that was added or corrected |
 
 Comparing `idc_version` alone cannot make this distinction in the other direction either — the
-`vNN` label is exactly the major, so matching `v24` on both sides tells you the release agrees
+`vNN` label is exactly the major, so matching `v25` on both sides tells you the release agrees
 but says nothing about the index build.
 
 When the two disagree, say so and name both versions, then reconcile rather than mixing
@@ -199,7 +199,7 @@ of them. It has two parts:
 }
 ```
 
-Filters operate only on the `index` table's filterable attributes — 19 of them as of `3.0.0b3`:
+Filters operate only on the `index` table's filterable attributes — 19 of them as of `3.0.0b5`:
 
 | Kind | Attributes |
 |------|------------|
@@ -258,7 +258,7 @@ B=https://api.imaging.datacommons.cancer.gov/v3
 
 curl -s $B/version                      # data release + API build
 curl -s $B/stats                        # headline totals
-curl -s $B/collections                  # all 176 collections
+curl -s $B/collections                  # all 179 collections
 curl -s $B/collections/rider_pilot      # one collection: counts, modalities, licenses
 curl -s $B/analysis_results             # derived datasets (segmentations, annotations)
 curl -s $B/attributes                   # what can be filtered, and how
@@ -366,7 +366,7 @@ reason before retrying.
 Ground the schema with `GET /tables` and `GET /tables/{table}` — do not guess table or column
 names.
 
-**Guardrails** (verified against `3.0.0b3`):
+**Guardrails** (verified against `3.0.0b5`):
 
 - Only single read-only `SELECT` / `WITH … SELECT` statements are accepted. Anything else is
   rejected with `{"error": {"code": "invalid_query", "message": "Only read-only SELECT (or WITH ... SELECT) statements are allowed."}}` and HTTP 400.
@@ -468,7 +468,7 @@ with the rest:
 
 ```
 The total of N copy commands are not recognized as referencing any associated series in the
-main index. ... they may correspond to files available in a release of IDC different from v24
+main index. ... they may correspond to files available in a release of IDC different from v25
 used in this version of idc-index.
 ...
 The corresponding files could not be downloaded.
@@ -510,12 +510,12 @@ S3-compatible endpoint, never a `gs://` URL. That is why `idc download-from-mani
 recognizes `s3://` lines. Driving `s5cmd` yourself, use `--no-sign-request`, and for
 `source=gcs` add `--endpoint-url https://storage.googleapis.com`.
 
-IDC is ~99 TB across 176 collections. Always report `series` and `size_TB` from
+IDC is ~100 TB across 179 collections. Always report `series` and `size_TB` from
 `cohort/counts` and confirm with the user before starting a broad download.
 
 ## Limits, Defaults, and Errors
 
-Measured against `3.0.0b3`. Values above a cap are silently clamped — the response echoes the
+Measured against `3.0.0b5`. Values above a cap are silently clamped — the response echoes the
 value actually used (`max_rows`, `page_size`), so read it back rather than assuming the request
 was honored.
 

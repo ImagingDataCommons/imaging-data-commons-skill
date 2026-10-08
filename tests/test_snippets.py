@@ -16,6 +16,8 @@ BigQuery snippets are covered separately in test_bq_snippets.py (uses bq CLI dry
 """
 
 import os
+import pathlib
+import re
 import sys
 
 import duckdb
@@ -77,8 +79,19 @@ class TestVersionAndSetup:
             >= check_version.parse_version(check_version.MIN_VERSION)
         ), f"idc-index {idc_index.__version__} < pinned minimum {check_version.MIN_VERSION}"
 
-    def test_idc_data_version_is_v24(self, client):
-        assert client.get_idc_version() == "v24"
+    def test_idc_data_version_matches_frontmatter(self, client):
+        """The installed index must serve the release SKILL.md claims to document.
+
+        Reading the frontmatter rather than hardcoding the version means a data
+        release bumps one place (SKILL.md) instead of silently leaving the docs
+        describing an older release than the pinned idc-index actually serves.
+        """
+        skill = pathlib.Path(__file__).resolve().parents[1] / "SKILL.md"
+        declared = re.search(
+            r'^  idc-data-version:\s*"?(v\d+)"?', skill.read_text(), re.M
+        )
+        assert declared, "SKILL.md frontmatter has no idc-data-version"
+        assert client.get_idc_version() == declared.group(1)
 
     def test_series_version_columns_present(self, client):
         cols = client.index.columns.tolist()
@@ -1046,6 +1059,8 @@ class TestParquetAccessGuide:
             "sm_index", "contrast_index", "ann_index", "ann_group_index",
             "collections_index", "analysis_results_index", "clinical_index",
             "ct_index", "mr_index", "pt_index", "prior_versions_index",
+            "sm_instance_index", "version_metadata_index",
+            "gdc_idc_mapping", "tcia_idc_subset",
         ]:
             url = f"{PARQUET_BASE}/{name}.parquet"
             request = urllib.request.Request(url, method="HEAD")
@@ -1142,3 +1157,74 @@ class TestParquetAccessGuide:
             LIMIT 10
         """).df()
         assert len(df) == 10
+
+
+class TestProvenance:
+    """references/index_tables_guide.md + sql_patterns.md — provenance, new in IDC v25.
+
+    Guards the two claims the guides make that a reader would otherwise have to
+    take on faith: that provenance is reachable by unnesting collections_index,
+    and that a NULL struct there is a pointer to analysis_results_index rather
+    than missing data.
+    """
+
+    PROV_FIELDS = (
+        "data_contributor",
+        "source_data_provider",
+        "deidentification_party",
+        "dicom_conversion_by",
+    )
+
+    def test_provenance_struct_fields_present(self, client_with_all_indices):
+        fields = ", ".join(f"src.provenance.{f}" for f in self.PROV_FIELDS)
+        df = client_with_all_indices.sql_query(
+            f"SELECT {fields} "
+            "FROM (SELECT unnest(sources) AS src FROM collections_index) LIMIT 5"
+        )
+        assert list(df.columns) == list(self.PROV_FIELDS)
+
+    def test_analysis_results_provenance_fully_populated(self, client_with_all_indices):
+        df = client_with_all_indices.sql_query(
+            "SELECT COUNT(*) AS total, "
+            "COUNT(provenance.data_contributor) AS with_prov "
+            "FROM analysis_results_index"
+        )
+        assert df["total"][0] > 0
+        assert df["with_prov"][0] == df["total"][0]
+
+    def test_null_collection_provenance_is_an_analysis_result(self, client_with_all_indices):
+        """The guides tell readers to treat NULL as a pointer, not as unknown."""
+        df = client_with_all_indices.sql_query("""
+            WITH s AS (SELECT unnest(sources) AS src FROM collections_index),
+            n AS (SELECT lower(src.source_doi) AS doi FROM s
+                  WHERE src.provenance.data_contributor IS NULL)
+            SELECT COUNT(*) AS unexplained FROM n
+            WHERE doi NOT IN (SELECT lower(source_DOI) FROM analysis_results_index)
+        """)
+        assert df["unexplained"][0] == 0
+
+    def test_idc_contributed_sources_are_idc_converted(self, client_with_all_indices):
+        """SKILL guides state the two coincide; a release that breaks it fails here."""
+        df = client_with_all_indices.sql_query("""
+            SELECT COUNT(*) AS mismatched
+            FROM (SELECT unnest(sources) AS src FROM collections_index)
+            WHERE src.provenance.data_contributor = 'IDC'
+              AND src.provenance.dicom_conversion_by IS DISTINCT FROM 'IDC'
+        """)
+        assert df["mismatched"][0] == 0
+
+    def test_series_join_to_source_provenance(self, client_with_all_indices):
+        """tcga_brca mixes TCIA-contributed radiology with IDC-converted pathology."""
+        df = client_with_all_indices.sql_query("""
+            SELECT DISTINCT s.src.provenance.data_contributor AS contributed_by,
+                            s.src.provenance.dicom_conversion_by AS converted_by
+            FROM index i
+            JOIN (SELECT collection_id, unnest(sources) AS src
+                  FROM collections_index) s
+              ON s.collection_id = i.collection_id
+             AND lower(s.src.source_doi) = lower(i.source_DOI)
+            WHERE i.collection_id = 'tcga_brca'
+        """)
+        pairs = set(zip(df["contributed_by"], df["converted_by"]))
+        assert ("TCIA", "NOT_APPLICABLE") in pairs
+        assert ("IDC", "IDC") in pairs

@@ -1,6 +1,6 @@
 # Index Tables Guide for IDC
 
-**Tested with:** idc-index 0.12.5 (IDC data version v24)
+**Tested with:** idc-index 0.13.0 (IDC data version v25)
 
 This guide covers the structure and access patterns for IDC index tables: programmatic schema discovery, DataFrame access, and join column references. For the overview of available tables and their purposes, see the "Index Tables" section in the main SKILL.md.
 
@@ -160,8 +160,96 @@ Most common columns in the primary `index` table (use `indices_overview` for com
 | `instanceCount` | INTEGER | No | Number of DICOM instances in series |
 | `SOPClassUID` | STRING | Yes | DICOM SOP Class UID (identifies the object/service class, e.g., CT Image Storage) |
 | `TransferSyntaxUID` | STRING | Yes | DICOM Transfer Syntax UID (encoding/compression method) |
+| `sop_class_name` | STRING | No | Human-readable `SOPClassUID` (e.g., "CT Image Storage", "Segmentation Storage"); the filterable form, and more specific than `Modality` for distinguishing object types |
+| `transfer_syntax_name` | STRING | No | Human-readable `TransferSyntaxUID` (e.g., "JPEG 2000", "Explicit VR Little Endian") |
+| `PhotometricInterpretation` | STRING | Yes | Intended interpretation of pixel data — `MONOCHROME2` (grayscale), `RGB` / `YBR_FULL_422` (color) |
+| `PixelRepresentation` | STRING | Yes | Pixel sample representation: `"0"` unsigned, `"1"` signed |
+
+**Pixel-encoding columns are per-series summaries, not per-instance values.** `TransferSyntaxUID`,
+`transfer_syntax_name`, `PhotometricInterpretation`, and `PixelRepresentation` are
+**comma-separated** when instances within one series differ — about 72 000 series in v25, mostly
+SM — and the latter two are `NULL` for non-image objects (SEG, SR, RTSTRUCT). Match them with
+`LIKE '%...%'` or split before comparing; an `=` test silently drops every mixed-encoding series.
+Filter on `sop_class_name` rather than parsing `SOPClassUID`: it is one of the 19 attributes the
+cohort and REST filter APIs accept, while the raw UID is not.
 
 **DICOM = Yes**: Column value extracted from the DICOM attribute with the same name. Refer to the [DICOM standard](https://dicom.nema.org/medical/dicom/current/output/chtml/part06/chapter_6.html) for numeric tag mappings. Use standard DICOM knowledge for expected values and formats.
+
+## Data Provenance (new in v25)
+
+IDC v25 added a structured, queryable record of **where each piece of data came from and who
+handled it** — previously answerable only by heuristics over `collection_id` and DOI strings.
+It lives in two places, both as a `provenance` STRUCT with the same four fields:
+
+| Field | Meaning |
+|-------|---------|
+| `data_contributor` | Who contributed the data to IDC (`TCIA`, `IDC`) |
+| `source_data_provider` | Who held the upstream source material (`GDC`, `TCIA`, `HTAN`, `NLM`, …) |
+| `deidentification_party` | Who performed de-identification (`TCIA`, `GDC`, `HTAN`, `NCH`, …) |
+| `dicom_conversion_by` | Who produced the DICOM representation |
+
+**Provenance is per-source, not per-collection.** A collection routinely mixes components with
+different lineage — TCGA radiology arrives as DICOM from TCIA while its pathology originates as
+vendor SVS from GDC and is converted by IDC under a separate Zenodo DOI. The unit is therefore
+`source_DOI`:
+
+- `collections_index.sources` is a **list of structs**, one per source, each carrying its own
+  `license`, `citation`, and `provenance`. Unnest before reaching into it.
+- `analysis_results_index.provenance` is a **plain struct** on the row (new column in v25).
+
+### Reading it
+
+```python
+client.fetch_index("collections_index")
+
+# Who de-identified each component of a collection, and did IDC convert it?
+client.sql_query("""
+    SELECT collection_id,
+           src.source_doi,
+           src.provenance.data_contributor,
+           src.provenance.deidentification_party,
+           src.provenance.dicom_conversion_by
+    FROM (SELECT collection_id, unnest(sources) AS src FROM collections_index)
+    WHERE collection_id = 'tcga_brca'
+""")
+```
+
+Attach provenance to actual series by joining `index.source_DOI` to the unnested `source_doi`
+(the DOIs match exactly; lowercase both sides to be safe):
+
+```python
+client.sql_query("""
+    SELECT i.collection_id, i.Modality, COUNT(*) AS series,
+           s.src.provenance.data_contributor AS contributed_by,
+           s.src.provenance.dicom_conversion_by AS converted_by
+    FROM index i
+    JOIN (SELECT collection_id, unnest(sources) AS src FROM collections_index) s
+      ON s.collection_id = i.collection_id
+     AND lower(s.src.source_doi) = lower(i.source_DOI)
+    GROUP BY ALL
+""")
+```
+
+### Two traps
+
+**`NULL` in `collections_index` does not mean "unknown".** 92 of the 308 sources in v25 have a
+`NULL` provenance struct, and all 92 are analysis-result DOIs whose provenance lives in
+`analysis_results_index.provenance` instead — which is populated for all 26 rows. Across the two
+tables coverage is complete, so a `NULL` here is a **pointer to the other table**, not missing
+data. Look the `source_DOI` up there before reporting provenance as unavailable.
+
+**Absent and unknown are different values.** The vocabulary uses explicit sentinels, so test for
+them rather than treating any non-empty string as an answer:
+
+| Sentinel | Means |
+|----------|-------|
+| `NOT_APPLICABLE` | The step did not happen — e.g. `dicom_conversion_by` for the 141 sources that arrived already as DICOM |
+| `UNKNOWN` | The step happened but the party is not recorded |
+| `NOT_DOCUMENTED` | Seen in `analysis_results_index.dicom_conversion_by` |
+
+In v25, `data_contributor` is `TCIA` for 141 sources and `IDC` for 75; the 75 IDC-contributed
+sources are exactly those with `dicom_conversion_by = 'IDC'`, since IDC contributing a component
+implies IDC converted it from a non-DICOM upstream source.
 
 ## Join Column Reference
 
@@ -170,6 +258,8 @@ Use this table to identify join columns between index tables. Always call `clien
 | Table A | Table B | Join Condition |
 |---------|---------|----------------|
 | `index` | `collections_index` | `index.collection_id = collections_index.collection_id` |
+| `index` | `collections_index.sources` (provenance) | `index.collection_id = collections_index.collection_id` AND `lower(index.source_DOI) = lower(src.source_doi)` after `unnest(sources) AS src` |
+| `index` | `analysis_results_index` | `lower(index.source_DOI) = lower(analysis_results_index.source_DOI)` |
 | `index` | `sm_index` | `index.SeriesInstanceUID = sm_index.SeriesInstanceUID` |
 | `index` | `seg_index` | `index.SeriesInstanceUID = seg_index.segmented_SeriesInstanceUID` |
 | `index` | `ann_index` | `index.SeriesInstanceUID = ann_index.SeriesInstanceUID` |

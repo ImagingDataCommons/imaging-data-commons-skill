@@ -10,5 +10,7 @@ exclude = [
     # GitHub issue creation requires login
     "^https://github\\.com/.*/issues/new",
     # DICOM NEMA server
-    "^https://dicom\\.nema\\.org"
+    "^https://dicom\\.nema\\.org",
+    # IDC MCP endpoint: an MCP transport, not a page (405 to HEAD, 406 to GET)
+    "^https://api\\.imaging\\.datacommons\\.cancer\\.gov/mcp"
 ]

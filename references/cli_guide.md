@@ -30,7 +30,7 @@ resolve and still produces no check.
 **Confirm the outcome, not the command.** A pass prints
 
 ```
-idc-index <version> meets pinned minimum (0.12.5)
+idc-index <version> meets pinned minimum (0.13.0)
 ```
 
 and exits 0. Anything else — `command not found`, a permission error (the bundled script is not

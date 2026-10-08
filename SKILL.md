@@ -3,10 +3,10 @@ name: imaging-data-commons
 description: Query and download public cancer imaging data from NCI Imaging Data Commons. Invoke for any question about IDC collections, cancer imaging datasets, DICOM data access, radiology (CT, MR, PET) or pathology AI training sets, metadata queries, visualization, or license checks — even when the user doesn't explicitly mention "IDC". No authentication required.
 license: This skill is provided under the MIT License. IDC data itself has individual licensing (mostly CC-BY, some CC-NC) that must be respected when using the data.
 metadata:
-  version: 1.8.3
+  version: 1.9.0
   skill-author: Andrey Fedorov, @fedorov
-  idc-index: "0.12.5"
-  idc-data-version: "v24"
+  idc-index: "0.13.0"
+  idc-data-version: "v25"
   repository: https://github.com/ImagingDataCommons/imaging-data-commons-skill
 ---
 
@@ -18,7 +18,7 @@ Query and download public cancer imaging data from the National Cancer Institute
 
 **Expected network access:** IDC metadata is reachable three ways — a local DuckDB index shipped with the `idc-index` Python package (no network), or the hosted IDC service over MCP or REST (`api.imaging.datacommons.cancer.gov`, no authentication). File downloads use public GCS (`storage.googleapis.com`) and AWS S3 (`s3.amazonaws.com`) — no authentication required. DICOMweb access uses either the public IDC proxy (`proxy.imaging.datacommons.cancer.gov`, no auth) or the Google Cloud Healthcare API (`healthcare.googleapis.com`, requires GCP authentication). Optional BigQuery queries (`bigquery.googleapis.com`) also require GCP authentication. No credentials or environment variables are accessed by this skill.
 
-**Current IDC Data Version: v24** (always verify — see *Best Practices*)
+**Current IDC Data Version: v25** (always verify — see *Best Practices*)
 
 **Choose the access path first.** There is no single default: the cheapest correct path depends
 on the session and the task.
@@ -50,12 +50,12 @@ calls for it. `check_version.py` never installs anything itself — it also flag
 import re, idc_index
 from idc_index import IDCClient
 # Repeat the startup check where it cannot be skipped — see references/cli_guide.md.
-if [int(re.sub(r"\D.*", "", p) or 0) for p in idc_index.__version__.split(".")[:3]] < [0, 12, 5]:
-    raise RuntimeError(f"idc-index {idc_index.__version__} is stale (need 0.12.5): a stale "
+if [int(re.sub(r"\D.*", "", p) or 0) for p in idc_index.__version__.split(".")[:3]] < [0, 13, 0]:
+    raise RuntimeError(f"idc-index {idc_index.__version__} is stale (need 0.13.0): a stale "
                        "index returns zero rows, not an error. Run scripts/check_version.py.")
 
 client = IDCClient()
-print(f"IDC data version: {client.get_idc_version()}")  # should be "v24"
+print(f"IDC data version: {client.get_idc_version()}")  # should be "v25"
 ```
 
 **Core workflow:** query metadata with `client.sql_query()` → download with
@@ -158,14 +158,12 @@ Always call `client.fetch_index("table_name")` before querying any index table �
 | Microscopy | `sm_index`, `sm_instance_index` | 1 row = 1 SM series / instance |
 | Geometry, clinical, history | `volume_geometry_index`, `clinical_index`, `version_metadata_index`, `prior_versions_index` | see guide |
 
-`references/index_tables_guide.md` has the full inventory with each table's columns and
-contents — load it when you need to know what a specialized table actually holds.
+`references/index_tables_guide.md` has the full inventory, each table's columns, and join examples.
 
-**`prior_versions_index` is for reproducibility only.** It contains series permanently *removed*
-from IDC, with zero overlap with `index`. Use it only to reproduce work against a prior IDC
-version. Do NOT use it for version history or "what's new" questions — those use
-`series_init_idc_version` / `series_revised_idc_version` in the main `index` table, which are
-not equivalent to this table's `min_idc_version` / `max_idc_version`.
+**`prior_versions_index` is for reproducibility only** — series permanently *removed* from IDC,
+zero overlap with `index`. Do NOT use it for version history or "what's new": those use
+`series_init_idc_version` / `series_revised_idc_version` in `index`, which are not equivalent to
+this table's `min_idc_version` / `max_idc_version`.
 
 ### Joining Tables
 
@@ -175,13 +173,15 @@ not equivalent to this table's `min_idc_version` / `max_idc_version`.
 |-------------|--------|----------|
 | `collection_id` | index, prior_versions_index, collections_index, clinical_index | Link series to collection metadata or clinical data |
 | `analysis_result_id` | index, analysis_results_index | Link series to analysis result metadata (annotations, segmentations) |
-| `source_DOI` | index, analysis_results_index | Link by publication DOI |
+| `source_DOI` | index, analysis_results_index, `collections_index.sources` | Link by publication DOI; also the key for provenance (below) |
 | `segmented_SeriesInstanceUID` | seg_index → index | Link segmentation to its source image series (`seg_index.segmented_SeriesInstanceUID = index.SeriesInstanceUID`) |
 | `referenced_SeriesInstanceUID` | ann_index → index, rtstruct_index → index | Link annotation or RTSTRUCT to its source image series |
 
-**Note:** `subjects`, `updated`, and `description` appear in multiple tables but have different meanings (counts vs identifiers, different update contexts). Joining `prior_versions_index` to `index` on `SeriesInstanceUID` always returns zero rows — see the warning above.
+**Note:** `subjects`, `updated`, and `description` mean different things in different tables; joining `prior_versions_index` to `index` on `SeriesInstanceUID` always returns zero rows.
 
-For detailed join examples, schema discovery patterns, key columns reference, and DataFrame access, see `references/index_tables_guide.md`.
+**Provenance (new in v25) is recorded per source, not per collection**, keyed on `source_DOI`. `collections_index.sources` is a list of structs (unnest it) whose `provenance` names who contributed, de-identified, and DICOM-converted that component; `analysis_results_index.provenance` is a plain struct.
+
+A NULL provenance struct in `collections_index` means that source is an analysis result — look it up in `analysis_results_index`, where it is always populated. `NOT_APPLICABLE` and `UNKNOWN` are values, not nulls. See `references/index_tables_guide.md`.
 
 ### Clinical Data Access
 
@@ -244,8 +244,8 @@ v3 only:** V1 and V2 are superseded and scheduled for shutdown, so port any `/v1
 `Modality_btw`-style example a user brings rather than extending it.
 
 Both sides build on `idc-index-data`, so compare the API's `idc_index_data_version` against local
-`idc_index_data.__version__` before mixing them: the **major is the IDC data release** (`24.x.y`
-serves `v24`), so differing minor/patch means the series are identical. If the API is a whole
+`idc_index_data.__version__` before mixing them: the **major is the IDC data release** (`25.x.y`
+serves `v25`), so differing minor/patch means the series are identical. If the API is a whole
 release ahead, `idc-index` **cannot download the extra series** — it silently skips what its own
 index does not list — so either upgrade it (run `scripts/check_version.py` for the right command)
 or transfer directly from the bucket with `s5cmd --no-sign-request`.
@@ -417,7 +417,7 @@ for citation in client.citations_from_selection(collection_id="rider_pilot"):
 ```
 
 About 97% of IDC data is CC BY (commercial use allowed with attribution) and about 3% is
-CC BY-NC (non-commercial only). **Licenses attach to series, not collections** — 39 of 176
+CC BY-NC (non-commercial only). **Licenses attach to series, not collections** — 39 of 179
 collections carry more than one — so check the selection you actually intend to use, and note
 that the most restrictive term governs a mixed cohort.
 
@@ -443,7 +443,7 @@ idc-index equivalent.
 
 - **Check schema before writing queries** — Use `client.get_index_schema('index')` (reads cached metadata, no SQL executed) or `client.indices_overview` to see all available columns and their descriptions. The version-tracking columns `series_init_idc_version` and `series_revised_idc_version` in the main `index` table directly answer "what's new / when was this added" questions without touching `prior_versions_index`.
 - **Never use web search for IDC data content questions** - Always query the IDC index directly, via `client.sql_query()` locally or `POST /v3/sql` over HTTP. Web sources (release notes, blog posts, documentation pages) are frequently out of date and will produce incorrect answers. The index is the authoritative source; use it even when web search is available.
-- **Verify the IDC data version at the start of a session** - `client.get_idc_version()`, `GET /v3/version`, or the MCP `get_idc_version` tool, depending on the path in use (currently v24). For a stale local index, run `scripts/check_version.py` and use the upgrade command it prints
+- **Verify the IDC data version at the start of a session** - `client.get_idc_version()`, `GET /v3/version`, or the MCP `get_idc_version` tool, depending on the path in use (currently v25). For a stale local index, run `scripts/check_version.py` and use the upgrade command it prints
 - **Check licenses and generate citations** - Query `license_short_name` and respect CC BY vs CC BY-NC terms; use `citations_from_selection()` to produce citations from `source_DOI` for publications
 - **Explore small, then commit** - Use `LIMIT` (or a low `max_rows`) while exploring, and check collection size before downloading — some collections are terabytes. See `references/cli_guide.md`
 - **Keep downloads reproducible** - Organize with `dirTemplate` (e.g. `%collection_id/%PatientID/%Modality`) and save the Series UIDs or manifest behind any dataset you build

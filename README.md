@@ -8,6 +8,7 @@ An AI agent skill for querying and downloading public cancer imaging data from t
 - Check data licenses and generate proper citations
 - Generate download commands, either with the `idc-index` package or as direct transfers from the public S3/GCS buckets
 - Provide links to browser-based DICOM viewers for data preview
+- Trace data provenance — who contributed each part of a dataset, who de-identified it, and whether IDC converted it to DICOM
 - Answer questions about IDC data structure and DICOM metadata
 
 ## What You Need
@@ -24,6 +25,7 @@ Once the skill is loaded, you can ask questions like:
 - "How do I download all breast MRI data with commercial-use licenses?"
 - "Show me the available collections in IDC and their sizes"
 - "Generate a citation for the TCGA-BRCA collection"
+- "Who de-identified the pathology images in TCGA-BRCA, and did IDC convert them to DICOM?"
 
 ## Reporting Issues
 

@@ -7,7 +7,7 @@ IDC-specific tool names. Those names are a contract with a service that versions
 independently of this repository, so they can go stale silently. These tests read the
 expectations out of the documentation and check them against the live server.
 
-The server is at beta (3.0.0b3) and its tool set may still move. A drift failure here means
+The server is at beta (3.0.0b5) and its tool set may still move. A drift failure here means
 the docs need updating, not that the skill is broken — the skill falls back to idc-index
 whenever identification fails.
 
