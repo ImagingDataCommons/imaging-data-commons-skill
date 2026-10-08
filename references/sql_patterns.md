@@ -1,6 +1,6 @@
 # SQL Query Patterns for IDC
 
-**Tested with:** idc-index 0.12.5 (IDC data version v24)
+**Tested with:** idc-index 0.13.0 (IDC data version v25)
 
 Quick reference for common SQL query patterns when working with IDC data. For detailed examples with context, see the "Core Capabilities" section in the main SKILL.md.
 
@@ -282,6 +282,65 @@ client.sql_query("""
     FROM first_versions f
     JOIN version_metadata_index v ON f.first_version = v.idc_version
     ORDER BY f.first_version DESC
+""")
+```
+
+## Data Provenance — "Where did this come from, and who de-identified it?"
+
+New in IDC v25. Provenance is recorded per **source** (`source_DOI`), not per collection, because
+collections mix components with different lineage. `collections_index.sources` is a list of
+structs, so unnest it; `analysis_results_index.provenance` is a plain struct. See
+`references/index_tables_guide.md` for the field definitions and sentinel values.
+
+```python
+client.fetch_index("collections_index")
+
+# Which datasets did IDC itself convert to DICOM (rather than receive as DICOM)?
+client.sql_query("""
+    SELECT collection_id, src.source_doi,
+           src.provenance.source_data_provider AS converted_from
+    FROM (SELECT collection_id, unnest(sources) AS src FROM collections_index)
+    WHERE src.provenance.dicom_conversion_by = 'IDC'
+    ORDER BY collection_id
+""")
+
+# Who performed de-identification, across the archive?
+client.sql_query("""
+    SELECT src.provenance.deidentification_party AS party, COUNT(*) AS sources
+    FROM (SELECT unnest(sources) AS src FROM collections_index)
+    WHERE src.provenance.deidentification_party IS NOT NULL
+    GROUP BY party ORDER BY sources DESC
+""")
+```
+
+Provenance for the series you actually selected — join on `source_DOI`:
+
+```python
+client.sql_query("""
+    SELECT i.collection_id, i.Modality, COUNT(*) AS series,
+           s.src.provenance.data_contributor AS contributed_by,
+           s.src.provenance.deidentification_party AS deidentified_by
+    FROM index i
+    JOIN (SELECT collection_id, unnest(sources) AS src FROM collections_index) s
+      ON s.collection_id = i.collection_id
+     AND lower(s.src.source_doi) = lower(i.source_DOI)
+    WHERE i.collection_id = 'tcga_brca'
+    GROUP BY ALL ORDER BY series DESC
+""")
+# tcga_brca splits by lineage: MR/MG contributed by TCIA (dicom_conversion_by NOT_APPLICABLE),
+# SM converted by IDC from GDC source material under a separate Zenodo DOI. The SEG/ANN/SR rows
+# come back NULL because they are analysis results — resolve those via analysis_results_index.
+```
+
+A `NULL` provenance struct in `collections_index` means the source is an **analysis result** —
+look it up in `analysis_results_index`, where provenance is fully populated:
+
+```python
+client.fetch_index("analysis_results_index")
+client.sql_query("""
+    SELECT analysis_result_id, source_DOI,
+           provenance.data_contributor, provenance.dicom_conversion_by
+    FROM analysis_results_index ORDER BY analysis_result_id
 """)
 ```
 

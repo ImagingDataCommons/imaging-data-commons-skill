@@ -42,7 +42,7 @@ About 97% of IDC data by size permits commercial reuse; just under 3% is non-com
 any `license_short_name` that is not a recognizable Creative Commons string as custom, and
 report the exact value to the user rather than assuming it permits reuse.
 
-**Licenses attach to individual series, not to whole collections.** 39 of IDC's 176 collections
+**Licenses attach to individual series, not to whole collections.** 39 of IDC's 179 collections
 carry more than one license — analysis results and original images within one collection can
 differ, as can series from different sources. Never conclude that a collection is
 commercially usable from one series, or from the collection's headline license: group by

@@ -3,7 +3,7 @@ Contract tests for the hosted IDC REST API documented in references/rest_api_gui
 
 The guide documents an API that versions independently of this repository — endpoint paths,
 filterable attributes, request body shapes, and row caps are all a contract with a beta
-service (3.0.0b3) that can move without notice. These tests parse the expectations out of the
+service (3.0.0b5) that can move without notice. These tests parse the expectations out of the
 guide and check them against the live API, so drift shows up as a CI failure rather than as
 wrong instructions to an agent.
 

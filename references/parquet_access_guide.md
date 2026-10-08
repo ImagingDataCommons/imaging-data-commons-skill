@@ -1,6 +1,6 @@
 # Direct Parquet Access Guide for IDC
 
-**Tested with:** idc-index-data 24.2.2 (IDC data version v24), DuckDB 1.5
+**Tested with:** idc-index-data 25.0.0 (IDC data version v25), DuckDB 1.5
 
 All idc-index metadata tables are published as Parquet files to a public GCS bucket with unrestricted CORS access. This enables metadata queries with DuckDB or pandas without installing idc-index.
 
@@ -45,8 +45,37 @@ https://storage.googleapis.com/idc-index-data-artifacts/current/release_artifact
 | `mr_index.parquet` | — | MR sequence/acquisition parameters |
 | `pt_index.parquet` | — | PET acquisition/radiopharmaceutical parameters |
 | `prior_versions_index.parquet` | — | Series from previous IDC releases |
+| `sm_instance_index.parquet` | ~18 MB | Instance-level slide microscopy metadata |
+| `version_metadata_index.parquet` | — | IDC release version timestamps |
+
+Two artifacts in the same directory are **not** index tables and have no `list_tables` /
+`fetch_index` equivalent, so they are reachable only here and from BigQuery:
+
+| File | Approximate Size | Description |
+|------|-----------------|-------------|
+| `gdc_idc_mapping.parquet` | ~1 MB | Maps IDC studies to GDC `gdc_case_id`, keyed by `collection_id` / `PatientID` / `StudyInstanceUID` — the join to use when pairing imaging with genomics or other GDC data |
+| `tcia_idc_subset.parquet` | ~46 MB | The subset of IDC series originating from TCIA, with `series_aws_url` for direct transfer |
 
 **Note:** the main index file is named `idc_index.parquet`, not `index.parquet`. Reference it with an alias in SQL queries (e.g., `FROM read_parquet(...) AS index`).
+
+## Hugging Face Mirror
+
+Since `idc-index-data` 25.0.0 the same artifacts are also published as a Hugging Face dataset,
+[`ImagingDataCommons/idc-index-data`](https://huggingface.co/datasets/ImagingDataCommons/idc-index-data)
+— public, no token, CC BY. The files carry the same names, flat at the repository root:
+
+```
+https://huggingface.co/datasets/ImagingDataCommons/idc-index-data/resolve/main/{filename}.parquet
+```
+
+Each index also ships a `{filename}_schema.json` alongside it, which is the cheapest way to read
+column names and descriptions without fetching the Parquet itself.
+
+`main` tracks the current release. Revision tags are published for index releases but coverage is
+incomplete, so **use the GCS versioned path, not a Hugging Face revision, when a query must be
+pinned** — see *Pinning to a Specific Version*. Prefer this mirror when GCS is blocked, or when
+the surrounding work already uses `datasets` / `polars`, which read it natively; otherwise GCS
+remains the primary.
 
 ## Prerequisites
 

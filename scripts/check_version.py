@@ -21,8 +21,8 @@ import re
 import shutil
 import sys
 
-MIN_VERSION = "0.12.5"   # keep in sync with metadata.idc-index in SKILL.md
-SKILL_VERSION = "1.8.3"  # keep in sync with metadata.version in SKILL.md
+MIN_VERSION = "0.13.0"   # keep in sync with metadata.idc-index in SKILL.md
+SKILL_VERSION = "1.9.0"  # keep in sync with metadata.version in SKILL.md
 REPO = "ImagingDataCommons/imaging-data-commons-skill"
 
 _LEADING_DIGITS = re.compile(r"\d+")

@@ -49,7 +49,7 @@ needs downloads or local analysis. Tool names may change as the server matures.
 
 ## Tool inventory
 
-Verified against server version `3.0.0b3`. Treat this as a snapshot, not a contract — call
+Verified against server version `3.0.0b5`. Treat this as a snapshot, not a contract — call
 the server's own listing rather than assuming this list is current.
 
 | Group | Tools |

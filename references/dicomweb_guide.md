@@ -34,13 +34,18 @@ https://proxy.imaging.datacommons.cancer.gov/current/viewer-only-no-downloads-se
 https://healthcare.googleapis.com/v1/projects/nci-idc-data/locations/us-central1/datasets/idc/dicomStores/idc-store-v{VERSION}/dicomWeb
 ```
 
-Replace `{VERSION}` with the IDC release number. To find the current version:
+Replace `{VERSION}` with the IDC release number:
 
 ```python
 from idc_index import IDCClient
 client = IDCClient()
-print(client.get_idc_version())  # e.g., "v24" for current version
+print(client.get_idc_version())  # e.g., "v25" for current version
 ```
+
+**The store lags the data release — do not assume `get_idc_version()` names an existing store.**
+Stores are populated 1-2 weeks after a release, so the newest store is often the previous
+version (as of IDC v25, `idc-store-v24` is the latest populated one). Treat the current data
+version as an upper bound, and fall back to the preceding version if a store 404s.
 
 - **~96% data coverage** - Only replicates data from `idc-open-data` bucket (missing ~4% from other buckets)
 - **Updates 1-2 weeks after** IDC releases
